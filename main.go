@@ -1,7 +1,8 @@
 package main
 
 import (
-	tb "gopkg.in/tucnak/telebot.v2"
+	"gopkg.in/mgo.v2"
+	tbApi "gopkg.in/tucnak/telebot.v2"
 	"log"
 	"os"
 	"time"
@@ -9,18 +10,28 @@ import (
 
 func main() {
 	token := parseEnvMandatory("BOT_TOKEN")
+	dbURL := parseEnvMandatory("DB_URL")
 
-	bot, err := tb.NewBot(tb.Settings{
+	bot, err := tbApi.NewBot(tbApi.Settings{
 		Token:  token,
-		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
+		Poller: &tbApi.LongPoller{Timeout: 10 * time.Second},
 	})
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	bot.Handle("/hello", func(m *tb.Message) {
-		bot.Send(m.Sender, "Hello World!!!!")
-	})
+
+	session, err := mgo.Dial(dbURL)
+	if err != nil {
+		log.Fatalf("Unable to establish DB connection to %s: %s", dbURL, err)
+	}
+	defer session.Close()
+
+	context := BotContext{
+		DbSession: session,
+		Bot:       bot,
+	}
+	context.RegisterCommands()
 
 	bot.Start()
 }
