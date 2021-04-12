@@ -32,7 +32,7 @@ func main() {
 		Bot:       bot,
 	}
 	context.RegisterCommands()
-
+	log.Println("Bot Ready.")
 	bot.Start()
 }
 

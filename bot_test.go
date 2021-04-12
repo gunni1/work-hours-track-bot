@@ -15,7 +15,7 @@ func TestParseWorkTimeFloat(t *testing.T) {
 		{"10.25", 10.25},
 	}
 	for _, testset := range testsets {
-		result, err := ParseWorkTimeFloat(testset.Input)
+		result, err := ParseFloat(testset.Input)
 		if err != nil {
 			t.Error(err)
 		}
