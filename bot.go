@@ -43,14 +43,12 @@ func (ctx BotContext) RegisterCommands() {
 			bot.Send(m.Sender, fmt.Sprintf("%s contains a invalid floatig point number.", m.Payload))
 			return
 		}
-
 		newAccount := Account{
 			UserId:                 m.Sender.ID,
 			InitialWorkHourBalance: initial,
 			WeekWorkHours:          workHours,
 		}
 
-		//TODO: Wenn bereits existiert, alle vorherigen löschen
 		dbSession := ctx.DbSession.Clone()
 		defer dbSession.Close()
 		accounts := dbSession.DB(DB_NAME).C(DB_COL_ACC)
@@ -76,7 +74,7 @@ func (ctx BotContext) RegisterCommands() {
 			bot.Send(m.Sender, parseErr.Error())
 			return
 		}
-		worklog := WorkLog{
+		workLog := WorkLog{
 			UserId:    m.Sender.ID,
 			WorkLoad:  workload,
 			TimeStamp: time.Now(),
@@ -84,17 +82,47 @@ func (ctx BotContext) RegisterCommands() {
 		dbSession := ctx.DbSession.Clone()
 		defer dbSession.Close()
 		workLogs := dbSession.DB(DB_NAME).C(DB_COL_WORK)
-		//TODO: Besteht für heute bereits ein Eeintrag? Dann diesen löschen
-		insErr := workLogs.Insert(worklog)
+
+		existCount, err := workLogs.Find(bson.M{"userId": m.Sender.ID, "timeStamp": bson.M{
+			"$gt": TodayBegin(),
+			"$lt": TodayEnd(),
+		}}).Count()
+		if err == nil && existCount > 0 {
+			removeErr := workLogs.Remove(bson.M{"userId": m.Sender.ID, "timeStamp": bson.M{
+				"$gt": TodayBegin(),
+				"$lt": TodayEnd(),
+			}})
+			if removeErr != nil {
+				log.Println(removeErr.Error())
+			}
+			log.Printf("Removed todays worklog for user: %d", m.Sender.ID)
+		}
+
+		insErr := workLogs.Insert(workLog)
 		if insErr != nil {
 			bot.Send(m.Sender, "Save Work failed due internal error. Sry :(")
 		} else {
 			bot.Send(m.Sender, fmt.Sprintf("Worked %.2f hours.", workload))
 		}
 	})
-	bot.Handle("/overtime", func(m *tbApi.Message) {
+	bot.Handle("/balance", func(m *tbApi.Message) {
 		//TODO: Alle Worklogs laden, Wochenarbeitszeit laden, zu gesamtsado verrechnen
+		dbSession := ctx.DbSession.Clone()
+		defer dbSession.Close()
+		workLogs := dbSession.DB(DB_NAME).C(DB_COL_WORK)
+		account := dbSession.DB(DB_NAME).C(DB_COL_ACC)
+
 	})
+}
+
+func TodayBegin() time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func TodayEnd() time.Time {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, time.UTC)
 }
 
 func ParseFloat(input string) (float64, error) {
