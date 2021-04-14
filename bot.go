@@ -106,13 +106,31 @@ func (ctx BotContext) RegisterCommands() {
 		}
 	})
 	bot.Handle("/balance", func(m *tbApi.Message) {
-		//TODO: Alle Worklogs laden, Wochenarbeitszeit laden, zu gesamtsado verrechnen
 		dbSession := ctx.DbSession.Clone()
 		defer dbSession.Close()
 		workLogs := dbSession.DB(DB_NAME).C(DB_COL_WORK)
-		account := dbSession.DB(DB_NAME).C(DB_COL_ACC)
-
+		accounts := dbSession.DB(DB_NAME).C(DB_COL_ACC)
+		var usersAcc Account
+		accFindErr := accounts.Find(bson.M{"userId": m.Sender.ID}).One(&usersAcc)
+		if accFindErr != nil {
+			bot.Send(m.Sender, "You have no work log account yet. Please start with /init")
+			return
+		}
+		var userWorkLogs []WorkLog
+		workLogs.Find(bson.M{"userId": m.Sender.ID}).All(&userWorkLogs)
+		workLogBalance := CalculateWorkDayBalance(userWorkLogs, usersAcc.WeekWorkHours)
+		totalBalance := workLogBalance + usersAcc.InitialWorkHourBalance
+		bot.Send(m.Sender, fmt.Sprintf("Your Current Work Balance is: %.2f hours", totalBalance))
 	})
+}
+
+func CalculateWorkDayBalance(workLogs []WorkLog, weekWorkHours float64) float64 {
+	actualSum := 0.0
+	targetHours := (weekWorkHours / 5) * float64(len(workLogs))
+	for _, workLog := range workLogs {
+		actualSum += workLog.WorkLoad
+	}
+	return actualSum - targetHours
 }
 
 func TodayBegin() time.Time {
