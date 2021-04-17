@@ -29,10 +29,6 @@ type BotContext struct {
 
 func (ctx BotContext) RegisterCommands() {
 	bot := ctx.Bot
-	bot.Handle("/start", func(m *tbApi.Message) {
-		bot.Send(m.Sender, "WorkHoursTrackBot is a bot about tracking your work time account. "+
-			"Type /help to see usage examples.")
-	})
 	bot.Handle("/help", func(m *tbApi.Message) {
 		bot.Send(m.Sender, "/init 6,25 40 \nInit overtime account with 6 hours, 15 minutes and 40 hours of work per day")
 		bot.Send(m.Sender, "/today 7 \nSet 7 hours as today's work time")
@@ -94,7 +90,8 @@ func (ctx BotContext) RegisterCommands() {
 		bot.Send(m.Sender, fmt.Sprintf("Your Current Work Balance is: %.2f hours", totalBalance))
 	})
 	//Interactive Initialization
-	bot.Handle("/init2", func(m *tbApi.Message) {
+	bot.Handle("/start", func(m *tbApi.Message) {
+		bot.Send(m.Sender, "WorkHoursTrackBot is a bot about tracking your work time account.")
 		bot.Send(m.Sender, "Please give me your current overtime balance.")
 		answerState[m.Sender.ID] = "ASKED_OT_BALANCE"
 	})
