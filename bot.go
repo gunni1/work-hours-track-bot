@@ -19,6 +19,9 @@ const (
 	DB_COL_ACC  = "WORK_ACC"
 )
 
+var answerState = make(map[int]string)
+var accWiz = make(map[int]Account)
+
 type BotContext struct {
 	DbSession *mgo.Session
 	Bot       *telebot.Bot
@@ -33,42 +36,10 @@ func (ctx BotContext) RegisterCommands() {
 	bot.Handle("/help", func(m *tbApi.Message) {
 		bot.Send(m.Sender, "/init 6,25 40 \nInit overtime account with 6 hours, 15 minutes and 40 hours of work per day")
 		bot.Send(m.Sender, "/today 7 \nSet 7 hours as today's work time")
-	})
-	bot.Handle("/init", func(m *tbApi.Message) {
-		//TODO: Überarbeiten. Besser eigene collection mit initialwert und wochenarbeitszeit
-		args := strings.Split(m.Payload, " ")
-		initial, wlErr := ParseFloat(args[0])
-		workHours, whErr := ParseFloat(args[1])
-		if wlErr != nil || whErr != nil {
-			bot.Send(m.Sender, fmt.Sprintf("%s contains a invalid floatig point number.", m.Payload))
-			return
-		}
-		newAccount := Account{
-			UserId:                 m.Sender.ID,
-			InitialWorkHourBalance: initial,
-			WeekWorkHours:          workHours,
-		}
+		bot.Send(m.Sender, "/balance \nSee your total overtime balance")
 
-		dbSession := ctx.DbSession.Clone()
-		defer dbSession.Close()
-		accounts := dbSession.DB(DB_NAME).C(DB_COL_ACC)
-		var sendersAcc []Account
-		findErr := accounts.Find(bson.M{"userId": m.Sender.ID}).All(&sendersAcc)
-		if findErr == nil {
-			accounts.Remove(bson.M{"userId": m.Sender.ID})
-			log.Printf("Removed account balance for user: %d", m.Sender.ID)
-		}
-
-		insErr := accounts.Insert(newAccount)
-		if insErr != nil {
-			bot.Send(m.Sender, "Initialization failed due internal error. Sry :(")
-		} else {
-			bot.Send(m.Sender, fmt.Sprintf("Initialized overtime balance with %.2f hours and "+
-				"%.1f work hours per week", initial, workHours))
-		}
 	})
 	bot.Handle("/today", func(m *tbApi.Message) {
-		//TODO: nur den ersten token aus m.Payload übergeben
 		workload, parseErr := ParseFloat(m.Payload)
 		if parseErr != nil {
 			bot.Send(m.Sender, parseErr.Error())
@@ -121,6 +92,52 @@ func (ctx BotContext) RegisterCommands() {
 		workLogBalance := CalculateWorkDayBalance(userWorkLogs, usersAcc.WeekWorkHours)
 		totalBalance := workLogBalance + usersAcc.InitialWorkHourBalance
 		bot.Send(m.Sender, fmt.Sprintf("Your Current Work Balance is: %.2f hours", totalBalance))
+	})
+	//Interactive Initialization
+	bot.Handle("/init2", func(m *tbApi.Message) {
+		bot.Send(m.Sender, "Please give me your current overtime balance.")
+		answerState[m.Sender.ID] = "ASKED_OT_BALANCE"
+	})
+	bot.Handle(tbApi.OnText, func(m *tbApi.Message) {
+
+		if answerState[m.Sender.ID] == "ASKED_OT_BALANCE" {
+			overtimeBalance, otpErr := ParseFloat(m.Text)
+			if otpErr != nil {
+				bot.Send(m.Sender, "Please type your overtime balance in hours as a number. For example '4,75' for 4 hours and 45 minutes")
+				return
+			}
+			newAccount := Account{
+				UserId:                 m.Sender.ID,
+				InitialWorkHourBalance: overtimeBalance,
+			}
+			accWiz[m.Sender.ID] = newAccount
+			bot.Send(m.Sender, fmt.Sprintf("Ok, you start with %.2f hours overtime.", overtimeBalance))
+			bot.Send(m.Sender, "How many hours per week do you work?")
+			answerState[m.Sender.ID] = "ASKED_WEEK_HOURS"
+		} else if answerState[m.Sender.ID] == "ASKED_WEEK_HOURS" {
+			weekWorkHours, wpErr := ParseFloat(m.Text)
+			if wpErr != nil {
+				bot.Send(m.Sender, "Please type your weekly work hours as a number. For example '40'")
+				return
+			}
+			dbSession := ctx.DbSession.Clone()
+			defer dbSession.Close()
+			accounts := dbSession.DB(DB_NAME).C(DB_COL_ACC)
+			account := accWiz[m.Sender.ID]
+			account.WeekWorkHours = weekWorkHours
+			//Remove if already exists
+			findErr := accounts.Find(bson.M{"userId": m.Sender.ID})
+			if findErr == nil {
+				accounts.Remove(bson.M{"userId": m.Sender.ID})
+				log.Printf("Removed account balance for user: %d", m.Sender.ID)
+			}
+			accounts.Insert(account)
+			delete(accWiz, m.Sender.ID)
+			delete(answerState, m.Sender.ID)
+			bot.Send(m.Sender, fmt.Sprintf("Account initialized with %.2f hours overtime and %.2f weekly work time.",
+				account.InitialWorkHourBalance, account.WeekWorkHours))
+			bot.Send(m.Sender, "Use eg. '/today 8' to log your daily work time")
+		}
 	})
 }
 
